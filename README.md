@@ -15,14 +15,19 @@
 
 ## 현재 구현 범위
 
-이번 단계에서는 아래를 구현했다.
+현재까지 구현 완료:
 
-1. 프로젝트 개발환경 세팅 (conda `lean-production`, Python 3.11)
+1. 프로젝트 개발환경 세팅 (conda `lean-production-analyzer`, Python 3.11)
 2. 로컬 Git repository 초기화 및 GitHub private repository(`origin`) 연결
-   (아직 commit/push는 수행하지 않은 상태이다)
 3. Synthetic production dataset 생성 및 검증
+4. Streamlit Dashboard: Production Overview
+5. Streamlit Dashboard: Bottleneck Analysis (공정 Drill-down, bottleneck 판정, Downtime Pareto)
 
-Streamlit Dashboard, AI Report, ML 모델 등은 아직 구현하지 않았다.
+아직 구현되지 않음:
+
+* Improvement Impact (Before/After 개선효과 전용 페이지)
+* AI Improvement Report
+* ML 모델 / LLM 연동
 
 ## 데이터에 대한 안내
 
@@ -65,8 +70,8 @@ Bottleneck과 LEAN 개선 효과)를 보여주기 위해 직접 설계한 **synt
 conda 환경(Python 3.11)을 사용한다.
 
 ```bash
-conda create -n lean-production python=3.11 -y
-conda activate lean-production
+conda create -n lean-production-analyzer python=3.11 -y
+conda activate lean-production-analyzer
 python -m pip install -r requirements.txt
 ```
 
@@ -101,6 +106,26 @@ Line/Process 단위로 집계할 때는 일별 ratio의 단순 평균이 아니�
 `primary_downtime_reason`은 그중 minute이 가장 큰 reason이고, `primary_defect_reason`은 해당 공정 row의
 대표 defect 원인이다(품질 Pareto 분석을 위한 event-level 구조는 이번 범위에서 만들지 않았다).
 
+## Dashboard 실행
+
+```bash
+conda activate lean-production-analyzer
+streamlit run app.py
+```
+
+두 화면으로 구성되어 있으며 사이드바에서 전환한다.
+
+* **Production Overview**: 공장 전체 KPI, Line별 Production Attainment 비교, 일자별 추이
+* **Bottleneck Analysis**: 선택한 Line의 공정별 성능 비교, 데이터 기반 bottleneck 공정 판정,
+  Downtime Pareto, rule-based 분석 요약
+
+기본 분석 기간은 `Before`이다. `Improvement`(Day 16, 전환일)는 문제를 희석시키므로 기본 분석에서
+제외하며, Period 필터에도 별도로 노출하지 않는다(`All` 선택 시에는 포함된다).
+
+Dashboard는 `data/production_data.csv`를 read-only로만 읽으며, 실행 중 데이터를 수정하지 않는다.
+KPI/분석 로직은 `src/metrics.py`(Line/Process KPI 계산), `src/analysis.py`(bottleneck 판정,
+downtime Pareto)에 분리되어 있고 `app.py`는 이를 UI에 연결하는 역할만 한다.
+
 ## 프로젝트 구조
 
 ```text
@@ -110,10 +135,13 @@ lean-production-analyzer/
 ├── CLAUDE.md
 ├── README.md
 ├── requirements.txt
+├── app.py
 ├── data/
 │   └── production_data.csv
 ├── src/
-│   └── generate_data.py
+│   ├── generate_data.py
+│   ├── metrics.py
+│   └── analysis.py
 └── scripts/
     └── validate_data.py
 ```

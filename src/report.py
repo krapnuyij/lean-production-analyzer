@@ -23,6 +23,8 @@ from src import analysis, metrics
 load_dotenv()
 
 GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_REQUEST_TIMEOUT_MS = 30_000
+GEMINI_MAX_ATTEMPTS = 1
 
 SYSTEM_PROMPT = """당신은 제조 공장의 LEAN 생산 개선 담당자를 돕는 리포트 작성 보조자이다.
 
@@ -168,7 +170,13 @@ def generate_ai_report(context: dict) -> str:
     from google import genai
     from google.genai import types
 
-    client = genai.Client(api_key=api_key)
+    client = genai.Client(
+        api_key=api_key,
+        http_options=types.HttpOptions(
+            timeout=GEMINI_REQUEST_TIMEOUT_MS,
+            retry_options=types.HttpRetryOptions(attempts=GEMINI_MAX_ATTEMPTS),
+        ),
+    )
     response = client.models.generate_content(
         model=GEMINI_MODEL,
         contents=build_report_prompt(context),

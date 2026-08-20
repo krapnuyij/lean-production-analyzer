@@ -1,171 +1,168 @@
 # Production LEAN Improvement Analyzer
 
-제조업 생산혁신 / LEAN 직무 지원을 위한 1~2일 규모의 미니 포트폴리오 프로젝트이다.
+생산 데이터를 기반으로 Line 성과를 모니터링하고 Bottleneck과 주요 Loss를 식별한 뒤, Before/After
+개선 효과와 후속 개선 우선순위까지 분석하는 LEAN 생산 분석 프로젝트이다.
 
-## 프로젝트 목적
+## 프로젝트 한눈에 보기
 
-가상의 신발 제조공장 생산 데이터를 기반으로 다음 분석 흐름을 보여주는 것을 목표로 한다.
+- **문제**: 생산 Line 성과 저하의 원인과 Bottleneck을 빠르게 파악하기 어려움
+- **분석 흐름**: 생산 현황 → Line 비교 → Process Drill-down → Bottleneck → Downtime Pareto
+  → Before/After 개선 효과 → AI 후속 개선 리포트
+- **핵심 결과**: LINE-B / Stitching이 주요 Bottleneck으로 식별됨 (Before 15일 중 15일, 100%)
+- **주요 Loss**: Changeover(43.4%), Machine Stop(28.1%) — 상위 2개가 전체 Downtime의 71.5%
+- **개선 효과**: 생산계획 달성률 78.5% → 92.0%(+13.4%p), Scheduled Good UPH +18.7%
+- **AI 활용**: Python이 계산한 분석 결과를 구조화해 Gemini에 전달하고, 후속 개선 우선순위를 생성
 
-```
-생산 데이터 → KPI 모니터링 → 이상 Line 탐지 → 공정 Drill-down
-→ Bottleneck 식별 → Loss 원인 분석 → 개선 전/후 효과 측정 → AI 개선 리포트
-```
+## 프로젝트 배경
 
-기술적 복잡성보다 명확한 비즈니스 로직, 데이터의 논리적 일관성, 분석 결과의 설명 가능성을 우선한다.
+제조 현장에서는 생산량 자체보다, 어느 Line·Process가 전체 생산성을 제한하는 Bottleneck인지 파악하는
+것이 더 중요하다. 이 프로젝트는 단순 KPI 모니터링에서 끝나지 않고 Bottleneck 식별 → Loss 원인 분석
+→ 개선활동 → 효과 측정으로 이어지는 분석 흐름을 구현했다.
 
-## 현재 구현 범위
+실제 기업 생산 데이터에 접근할 수 없어, 신발 제조 공정을 가정한 synthetic dataset을 직접 설계했다.
+**실제 기업의 생산 데이터가 아니다.**
 
-현재까지 구현 완료:
+## 분석 시나리오
 
-1. 프로젝트 개발환경 세팅 (conda `lean-production-analyzer`, Python 3.11)
-2. 로컬 Git repository 초기화 및 GitHub private repository(`origin`) 연결
-3. Synthetic production dataset 생성 및 검증
-4. 대시보드 화면: 생산 현황
-5. 대시보드 화면: Bottleneck 분석 (Process Drill-down, Bottleneck 판정, Downtime Pareto)
-6. 대시보드 화면: 개선 효과 분석 (LINE-B / Stitching Before vs After 비교, KPI Delta, Downtime Loss 구조 변화)
-7. 대시보드 화면: AI 개선 리포트 (Gemini 기반, Python이 계산한 KPI/분석 결과를 구조화해 LLM에 전달)
+- Line: LINE-A / LINE-B / LINE-C
+- Process: Cutting → Stitching → Assembly → Finishing
+- 기간: 30일 (Day 1~15 Before / Day 16 Improvement / Day 17~30 After)
+- 핵심 문제: **LINE-B / Stitching**이 개선 전 주요 Bottleneck
+- Day 16 개선활동: Changeover 작업 표준화, 자재·공구 Pre-staging, 작업 배분 및 Line Balancing
 
-아직 구현되지 않음:
+Line throughput은 4개 Process capacity 중 가장 낮은 값에 의해 제한되는 단순화된 steady-state
+synthetic model이다.
 
-* (해당 없음 — 4단계 기능 구현 완료)
+## 분석 흐름
 
-## 데이터에 대한 안내
-
-`data/production_data.csv`는 **실제 기업 생산 데이터가 아니다.** 분석 시나리오(LINE-B Stitching 공정의
-Bottleneck과 LEAN 개선 효과)를 보여주기 위해 직접 설계한 **synthetic(합성) manufacturing dataset**이다.
-
-- 대상: 가상의 신발 제조공장
-- 생산라인: LINE-A, LINE-B, LINE-C
-- 공정: Cutting, Stitching, Assembly, Finishing
-- 기간: 총 30일 (Day 1~15 Before / Day 16 Improvement(transition) / Day 17~30 After)
-- row 단위: 날짜 × 생산라인 × 공정 = 1 row → 총 30 × 3 × 4 = 360 rows
-- random seed를 고정하여 동일 코드 실행 시 동일한 데이터가 재현된다.
-- Day 16(Improvement)은 개선활동이 실제로 적용된 전환일이며, 이후 2일(Day 17~18)은 성능이
-  After 수준으로 점진적으로 안정화되는 ramp-up 구간이다. **Before/After 비교 분석에서는 Day 16을
-  제외**한다.
-
-핵심 시나리오: **LINE-B의 Stitching 공정이 개선 전 Bottleneck**이며, Day 16의 LEAN 개선활동
-(Changeover 표준화, 자재/공구 사전 준비, 공정 내 Line Balancing) 이후 생산성이 개선된다.
-
-### Line throughput 모델 (단순화된 steady-state 구조)
-
-이 데이터셋은 상세한 공장 discrete-event/WIP simulation이 아니라, **병목 공정이 Line 전체의
-일일 생산량을 제한하는 단순화된 steady-state 모델**이다.
-
-날짜 × Line 단위로:
-
-1. `planned_qty`를 Line 단위 생산계획으로 독립 생성한다. (그날의 실제 capacity로부터 역산하지 않는다)
-2. Cutting/Stitching/Assembly/Finishing 각 공정의 `cycle_time_sec`, `downtime_minutes`을 생성하고,
-   `capacity_qty = operating_minutes * 60 / cycle_time_sec` (숨겨진 efficiency 계수 없음)로
-   공정별 생산 capacity를 계산한다.
-3. 해당 날짜 Line의 실제 생산량은 `actual_qty = min(planned_qty, 4개 공정 capacity의 최솟값)`으로
-   결정되고, 같은 날짜/Line의 4개 공정 row가 이 값을 동일하게 공유한다. 즉 가장 느린 공정(병목)이
-   그날 Line 전체의 산출량을 제한한다.
-4. 공정별 `defect_rate`를 적용해 각 공정 row의 `good_qty`/`defect_qty`를 계산한다.
-
-재작업(rework) 흐름이나 공정 간 WIP 버퍼는 모델링하지 않는다.
-
-## 환경 설정
-
-conda 환경(Python 3.11)을 사용한다.
-
-```bash
-conda create -n lean-production-analyzer python=3.11 -y
-conda activate lean-production-analyzer
-python -m pip install -r requirements.txt
+```mermaid
+graph LR
+    A[생산 현황] --> B[LINE-B 성과 저하 발견]
+    B --> C[Process Drill-down]
+    C --> D[Stitching Bottleneck 식별]
+    D --> E[Downtime Pareto]
+    E --> F[Changeover / Machine Stop 주요 Loss]
+    F --> G[Before/After 개선 효과 측정]
+    G --> H[잔여 Loss 확인]
+    H --> I[AI 후속 개선 리포트]
 ```
 
-## 데이터 생성 및 검증
+## 핵심 분석 결과
 
-```bash
-python src/generate_data.py     # data/production_data.csv 생성
-python scripts/validate_data.py # 데이터 일관성 검증 + KPI sanity check 출력
+### Bottleneck
+
+Before 기간 LINE-B 기준:
+
+- Primary Bottleneck: **Stitching** — 15일 중 15일(100%)에서 가장 낮은 Process Capacity
+- Cycle Time: 약 70.4초 (다른 Process 평균 대비 높음)
+- 평균 Downtime: 약 65.9분
+
+### Downtime Pareto
+
+LINE-B / Stitching / Before 기준:
+
+| Reason | 비중 |
+| --- | ---: |
+| Changeover | 43.4% |
+| Machine Stop | 28.1% |
+| Material Delay | 15.4% |
+| Quality Issue | 6.9% |
+| Worker Absence | 6.2% |
+
+상위 2개 Loss(Changeover + Machine Stop)가 전체 Downtime의 약 71.5%를 차지한다.
+
+## 개선 효과
+
+LINE-B / Stitching의 Before(Day 1~15) vs After(Day 17~30) 비교:
+
+| KPI | Before | After | 변화 |
+| --- | ---: | ---: | ---: |
+| 생산계획 달성률 | 78.5% | 92.0% | +13.4%p |
+| Scheduled Good UPH | 42.7 | 50.7 | +18.7% |
+| Cycle Time | 70.4초 | 62.5초 | -11.2% |
+| Downtime | 65.9분 | 42.2분 | -35.9% |
+| 불량률 | 3.4% | 2.9% | -0.5%p |
+
+- Changeover 일평균 Downtime은 약 71.6% 감소했다.
+- 다만 Quality Issue, Worker Absence는 After 기간 일평균 Downtime이 오히려 증가해, 후속 개선
+  과제로 확인됐다.
+
+모든 지표가 일괄적으로 개선된 것은 아니며, Before/After 데이터 자체도 일부 겹치는 구간과 현실적인
+변동을 포함한다.
+
+## AI 개선 리포트 설계
+
+**LLM은 raw production data를 직접 분석하지 않는다.**
+
+```
+production_data.csv → Python KPI/Bottleneck/Pareto/Before-After 계산
+→ 구조화된 report context(JSON) → Gemini → 후속 개선 우선순위
 ```
 
-`scripts/validate_data.py`는 raw data로부터 다음 KPI를 계산한다. (CSV에는 저장하지 않는다.)
+- 숫자 계산과 Bottleneck 판정은 전부 deterministic한 Python 로직(`src/metrics.py`, `src/analysis.py`)이
+  담당한다.
+- Gemini에는 이미 검증된 분석 결과(JSON)만 전달되며, raw CSV 전체나 원본 dataframe은 전달되지 않는다.
+- 데이터에 없는 원인(설비 상태, 인력 문제 등)을 사실처럼 생성하지 않도록 prompt에서 명시적으로
+  제한한다.
+- AI는 분석 자체가 아니라 결과 설명과 후속 개선 아이디어 제안 역할을 맡는다.
+
+## 주요 화면
+
+### 1. 생산 현황
+
+전체 Line의 생산계획 달성률과 일별 추이를 비교해 성과가 낮은 Line을 빠르게 확인한다.
+
+![생산 현황](docs/images/production-overview.png)
+
+### 2. Bottleneck 분석
+
+LINE-B / Before 구간을 Process 단위로 Drill-down하여 Stitching이 주요 Bottleneck임을 확인하고, Downtime Pareto로 주요 Loss를 파악한다.
+
+![Bottleneck 분석](docs/images/bottleneck-analysis.png)
+
+### 3. 개선 효과 분석
+
+LINE-B / Stitching의 Before/After KPI를 비교해 생산계획 달성률, UPH, Cycle Time, Downtime 등의 변화와 개선 효과를 확인한다.
+
+![개선 효과 분석](docs/images/improvement-impact.png)
+
+### 4. AI 개선 리포트
+
+Python에서 계산한 Bottleneck, 주요 Loss, Before/After KPI와 잔여 Loss를 구조화해 Gemini에 전달하고, 후속 개선 과제를 요약한다.
+
+![AI 개선 리포트](docs/images/ai-report.png)
+
+## KPI 정의
 
 - `production_attainment = actual_qty / planned_qty`
+- `scheduled_good_uph = good_qty / (8시간 shift)` — shift 전체(downtime 포함) 기준 output 속도
+- `runtime_good_uph = good_qty / (operating_minutes / 60)` — 실제 가동시간 기준 output 속도
 - `defect_rate = defect_qty / actual_qty`
-- `scheduled_good_uph = good_qty / (480 / 60)`
-  전체 shift(8시간, downtime 포함) 기준 실제 output 속도. 병목/생산성 분석에서 기본으로 사용하는 UPH이다.
-- `runtime_good_uph = good_qty / (operating_minutes / 60)`
-  실제 설비 가동시간(downtime 제외) 동안의 output 속도. 보조 진단용 KPI이다.
 - `downtime_rate = downtime_minutes / 480`
+- `process_capacity = operating_minutes × 60 / cycle_time_sec`
 
-Line/Process 단위로 집계할 때는 일별 ratio의 단순 평균이 아니라 `sum(actual_qty)/sum(planned_qty)`
-같은 합계 기반 weighted aggregation을 사용한다.
+Bottleneck은 같은 date × line의 4개 Process 중 Capacity가 가장 낮은 Process로 정의한다.
 
-### Downtime reason 구조
+`planned_qty` / `actual_qty`는 동일 date × line의 4개 Process row에 반복되므로, Line 단위 KPI를
+계산할 때는 먼저 dedup한 뒤 계산해 4배 중복 집계를 방지한다.
 
-`downtime_minutes`는 하나의 reason에 전부 귀속되지 않고, 다음 5개 컬럼으로 분해되어 있으며 그 합이
-`downtime_minutes`와 정확히 일치한다.
+## 기술 스택
 
-`changeover_minutes`, `machine_stop_minutes`, `material_delay_minutes`, `quality_issue_minutes`,
-`worker_absence_minutes`
-
-`primary_downtime_reason`은 그중 minute이 가장 큰 reason이고, `primary_defect_reason`은 해당 공정 row의
-대표 defect 원인이다(품질 Pareto 분석을 위한 event-level 구조는 이번 범위에서 만들지 않았다).
-
-## 대시보드 실행
-
-```bash
-conda activate lean-production-analyzer
-streamlit run app.py
-```
-
-네 화면으로 구성되어 있으며 사이드바에서 전환한다.
-
-* **생산 현황**: 공장 전체 KPI, Line별 생산계획 달성률 비교, 일자별 추이
-* **Bottleneck 분석**: 선택한 Line의 Process별 성능 비교, 데이터 기반 Bottleneck 판정,
-  Downtime Pareto, rule-based 분석 요약
-* **개선 효과 분석**: 이번 시나리오의 개선 대상인 `LINE-B / Stitching`을 고정 대상으로, Before(Day 1~15)
-  vs After(Day 17~30) KPI 비교, 일별 Scheduled Good UPH 추이(Day 16 전환 시점 표시), Downtime Loss
-  구조 변화, rule-based 개선 효과 요약을 보여준다. Day 16(Improvement)은 Before/After 집계에서 제외한다.
-* **AI 개선 리포트**: `LINE-B / Stitching`의 Bottleneck/Loss/Before-After 결과를 바탕으로 LLM이
-  후속 개선 포인트를 요약한다. 아래 "AI 개선 리포트" 절 참고.
-
-생산 현황/Bottleneck 분석의 기본 분석 기간은 `Before`이다. `Improvement`(Day 16, 전환일)는 문제를
-희석시키므로 기본 분석에서 제외하며, Period 필터에도 별도로 노출하지 않는다(`All` 선택 시에는 포함된다).
-
-대시보드는 `data/production_data.csv`를 read-only로만 읽으며, 실행 중 데이터를 수정하지 않는다.
-KPI/분석 로직은 `src/metrics.py`(Line/Process/개선 효과 KPI 계산), `src/analysis.py`(Bottleneck 판정,
-Downtime Pareto, Downtime Loss 구조 변화, rule-based 요약)에 분리되어 있고 `app.py`는 이를 UI에
-연결하는 역할만 한다.
-
-## AI 개선 리포트
-
-`src/report.py`가 `src/metrics.py`/`src/analysis.py`의 기존 함수를 재사용해 LINE-B / Stitching의
-Bottleneck·Before/After KPI·Downtime Loss 변화를 작은 JSON 형태의 context로 먼저 계산한다.
-**raw CSV 전체나 원본 dataframe을 LLM에 직접 넘기지 않으며**, Python에서 이미 계산이 끝난 숫자만
-LLM에 전달해 5개 섹션(현황 요약 / 주요 Loss / 개선 효과 / 후속 개선 과제 / 다음 개선 우선순위)의
-한국어 Markdown 리포트로 정리하도록 한다. LLM은 숫자를 새로 계산하거나 데이터에 없는 사실(설비 상태,
-인력 문제 등)을 만들어내지 않도록 system prompt에서 명시적으로 제한한다.
-
-Provider는 **Google Gemini**(`google-genai` 공식 SDK) 하나만 사용한다. API key는 절대 코드에
-포함하지 않고 환경변수에서 읽는다.
-
-```bash
-cp .env.example .env
-# .env 파일을 열어 GEMINI_API_KEY=실제_키_값 형태로 채운다
-```
-
-`.env`는 `.gitignore`에 포함되어 있어 커밋되지 않는다. `.env.example`에는 변수 이름만 있다.
-API key가 설정되지 않은 상태에서도 나머지 세 화면(생산 현황/Bottleneck 분석/개선 효과 분석)은
-정상 동작하며, AI 개선 리포트 화면은 안내 문구만 보여주고 API를 호출하지 않는다. `AI 개선 리포트
-생성` 버튼을 눌렀을 때만 1회 호출되며, 생성된 결과는 `st.session_state`에 유지되어 페이지 이동/rerun
-시 반복 호출되지 않는다.
+| 영역 | 기술 |
+| --- | --- |
+| Data | Python, pandas, NumPy |
+| Visualization | Streamlit, Plotly |
+| AI Report | Google Gemini (`google-genai`) |
+| Environment | conda, Python 3.11 |
+| Version Control | Git, GitHub |
 
 ## 프로젝트 구조
 
 ```text
 lean-production-analyzer/
-├── .gitignore
-├── .env.example
-├── AGENTS.md
-├── CLAUDE.md
-├── README.md
-├── requirements.txt
 ├── app.py
+├── requirements.txt
+├── .env.example
 ├── data/
 │   └── production_data.csv
 ├── src/
@@ -176,3 +173,22 @@ lean-production-analyzer/
 └── scripts/
     └── validate_data.py
 ```
+
+## 실행 방법
+
+```bash
+conda create -n lean-production-analyzer python=3.11
+conda activate lean-production-analyzer
+pip install -r requirements.txt
+streamlit run app.py
+```
+
+AI 개선 리포트를 사용하려면 `.env.example`을 참고해 로컬 `.env`에 `GEMINI_API_KEY`를 설정한다.
+API key가 없어도 생산 현황 / Bottleneck 분석 / 개선 효과 분석 화면은 정상 동작한다.
+
+## 데이터 안내 및 한계
+
+- 실제 기업/생산 현장 데이터를 사용하지 않았다.
+- 제조 LEAN 분석 흐름을 검증하기 위해 직접 설계한 synthetic dataset이다.
+- 상세 WIP, 재작업, 설비 event, 교대조·제품 mix 등 실제 현장의 요소는 모델링하지 않았다.
+- 실제 적용 시 MES/설비/품질/인력 데이터와 연결해 확장할 수 있다.

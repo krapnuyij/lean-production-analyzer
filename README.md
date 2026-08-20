@@ -20,13 +20,13 @@
 1. 프로젝트 개발환경 세팅 (conda `lean-production-analyzer`, Python 3.11)
 2. 로컬 Git repository 초기화 및 GitHub private repository(`origin`) 연결
 3. Synthetic production dataset 생성 및 검증
-4. Streamlit Dashboard: Production Overview
-5. Streamlit Dashboard: Bottleneck Analysis (공정 Drill-down, bottleneck 판정, Downtime Pareto)
+4. 대시보드 화면: 생산 현황
+5. 대시보드 화면: Bottleneck 분석 (Process Drill-down, Bottleneck 판정, Downtime Pareto)
+6. 대시보드 화면: 개선 효과 분석 (LINE-B / Stitching Before vs After 비교, KPI Delta, Downtime Loss 구조 변화)
 
 아직 구현되지 않음:
 
-* Improvement Impact (Before/After 개선효과 전용 페이지)
-* AI Improvement Report
+* AI 개선 리포트
 * ML 모델 / LLM 연동
 
 ## 데이터에 대한 안내
@@ -106,25 +106,29 @@ Line/Process 단위로 집계할 때는 일별 ratio의 단순 평균이 아니�
 `primary_downtime_reason`은 그중 minute이 가장 큰 reason이고, `primary_defect_reason`은 해당 공정 row의
 대표 defect 원인이다(품질 Pareto 분석을 위한 event-level 구조는 이번 범위에서 만들지 않았다).
 
-## Dashboard 실행
+## 대시보드 실행
 
 ```bash
 conda activate lean-production-analyzer
 streamlit run app.py
 ```
 
-두 화면으로 구성되어 있으며 사이드바에서 전환한다.
+세 화면으로 구성되어 있으며 사이드바에서 전환한다.
 
-* **Production Overview**: 공장 전체 KPI, Line별 Production Attainment 비교, 일자별 추이
-* **Bottleneck Analysis**: 선택한 Line의 공정별 성능 비교, 데이터 기반 bottleneck 공정 판정,
+* **생산 현황**: 공장 전체 KPI, Line별 생산계획 달성률 비교, 일자별 추이
+* **Bottleneck 분석**: 선택한 Line의 Process별 성능 비교, 데이터 기반 Bottleneck 판정,
   Downtime Pareto, rule-based 분석 요약
+* **개선 효과 분석**: 이번 시나리오의 개선 대상인 `LINE-B / Stitching`을 고정 대상으로, Before(Day 1~15)
+  vs After(Day 17~30) KPI 비교, 일별 Scheduled Good UPH 추이(Day 16 전환 시점 표시), Downtime Loss
+  구조 변화, rule-based 개선 효과 요약을 보여준다. Day 16(Improvement)은 Before/After 집계에서 제외한다.
 
-기본 분석 기간은 `Before`이다. `Improvement`(Day 16, 전환일)는 문제를 희석시키므로 기본 분석에서
-제외하며, Period 필터에도 별도로 노출하지 않는다(`All` 선택 시에는 포함된다).
+생산 현황/Bottleneck 분석의 기본 분석 기간은 `Before`이다. `Improvement`(Day 16, 전환일)는 문제를
+희석시키므로 기본 분석에서 제외하며, Period 필터에도 별도로 노출하지 않는다(`All` 선택 시에는 포함된다).
 
-Dashboard는 `data/production_data.csv`를 read-only로만 읽으며, 실행 중 데이터를 수정하지 않는다.
-KPI/분석 로직은 `src/metrics.py`(Line/Process KPI 계산), `src/analysis.py`(bottleneck 판정,
-downtime Pareto)에 분리되어 있고 `app.py`는 이를 UI에 연결하는 역할만 한다.
+대시보드는 `data/production_data.csv`를 read-only로만 읽으며, 실행 중 데이터를 수정하지 않는다.
+KPI/분석 로직은 `src/metrics.py`(Line/Process/개선 효과 KPI 계산), `src/analysis.py`(Bottleneck 판정,
+Downtime Pareto, Downtime Loss 구조 변화, rule-based 요약)에 분리되어 있고 `app.py`는 이를 UI에
+연결하는 역할만 한다.
 
 ## 프로젝트 구조
 

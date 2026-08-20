@@ -39,6 +39,16 @@ PARETO_LINE_COLOR = "#fab219"
 
 PAGE_OVERVIEW = "생산 현황"
 PAGE_BOTTLENECK = "Bottleneck 분석"
+PAGE_IMPROVEMENT = "개선 효과 분석"
+
+# this synthetic scenario's fixed improvement case -- no Line/Process filter on this page
+IMPROVEMENT_LINE = "LINE-B"
+IMPROVEMENT_PROCESS = "Stitching"
+IMPROVEMENT_ACTIONS = [
+    ("Changeover 작업 표준화", "Changeover 절차를 표준화해 준비/전환 시간 편차를 줄인다."),
+    ("자재·공구 Pre-staging", "필요한 자재와 공구를 작업 전 미리 배치해 대기 시간을 줄인다."),
+    ("작업 배분 및 Line Balancing", "공정 내 작업을 재배분해 병목 구간의 부하를 분산한다."),
+]
 
 st.set_page_config(page_title="Production LEAN Improvement Analyzer", layout="wide")
 
@@ -259,19 +269,158 @@ def render_bottleneck(df: pd.DataFrame) -> None:
         st.markdown(summary_text.replace("\n", "  \n"))
 
 
+def _before_after_bar_chart(before_val: float, after_val: float, title: str, yaxis_title: str,
+                             value_fmt, is_percent: bool = False) -> go.Figure:
+    fig = go.Figure(go.Bar(
+        x=["Before", "After"], y=[before_val, after_val],
+        marker_color=[NEUTRAL_COLOR, LINE_COLORS[IMPROVEMENT_LINE]],
+        text=[value_fmt(before_val), value_fmt(after_val)],
+        textposition="outside",
+        hovertemplate="%{x}<br>" + title + ": %{text}<extra></extra>",
+    ))
+    layout_kwargs = dict(title=title, yaxis_title=yaxis_title, showlegend=False, height=320)
+    if is_percent:
+        layout_kwargs["yaxis_tickformat"] = ".0%"
+    fig.update_layout(**layout_kwargs)
+    return fig
+
+
+def render_improvement(df: pd.DataFrame) -> None:
+    st.header(PAGE_IMPROVEMENT)
+    st.caption(f"{IMPROVEMENT_LINE} / {IMPROVEMENT_PROCESS}의 주요 Loss를 개선한 뒤 생산성과 운영 KPI가 "
+               f"어떻게 변화했는지 Before/After 기준으로 비교한다.")
+    st.info(f"개선 대상: {IMPROVEMENT_LINE} / {IMPROVEMENT_PROCESS}", icon="🎯")
+
+    st.subheader("개선활동")
+    st.caption("아래 개선활동은 이번 synthetic scenario에 설정된 가정이며, 실제 기업의 활동을 나타내지 않는다.")
+    action_cols = st.columns(3)
+    for col, (title, desc) in zip(action_cols, IMPROVEMENT_ACTIONS):
+        with col:
+            with st.container(border=True):
+                st.markdown(f"**{title}**")
+                st.caption(desc)
+
+    kpi_table = metrics.calculate_improvement_kpis(df, IMPROVEMENT_LINE, IMPROVEMENT_PROCESS)
+    before = kpi_table.loc["Before"]
+    after = kpi_table.loc["After"]
+
+    st.subheader("핵심 Before / After KPI")
+    k1, k2, k3, k4, k5 = st.columns(5)
+
+    attainment_delta_pp = metrics.calculate_improvement_delta(
+        before["production_attainment"], after["production_attainment"], kind="pp") * 100
+    k1.metric("생산계획 달성률", f"{after['production_attainment']:.1%}", f"{attainment_delta_pp:+.1f}%p")
+    k1.caption(f"{before['production_attainment']:.1%} → {after['production_attainment']:.1%}")
+
+    uph_delta = metrics.calculate_improvement_delta(before["scheduled_good_uph"], after["scheduled_good_uph"])
+    k2.metric("Scheduled Good UPH", f"{after['scheduled_good_uph']:.1f}", f"{uph_delta:+.1%}")
+    k2.caption(f"{before['scheduled_good_uph']:.1f} → {after['scheduled_good_uph']:.1f}")
+
+    cycle_delta = metrics.calculate_improvement_delta(before["avg_cycle_time_sec"], after["avg_cycle_time_sec"])
+    k3.metric("Cycle Time", f"{after['avg_cycle_time_sec']:.1f}초", f"{cycle_delta:+.1%}", delta_color="inverse")
+    k3.caption(f"{before['avg_cycle_time_sec']:.1f}초 → {after['avg_cycle_time_sec']:.1f}초")
+
+    downtime_delta = metrics.calculate_improvement_delta(
+        before["avg_downtime_minutes"], after["avg_downtime_minutes"])
+    k4.metric("Downtime", f"{after['avg_downtime_minutes']:.1f}분", f"{downtime_delta:+.1%}", delta_color="inverse")
+    k4.caption(f"{before['avg_downtime_minutes']:.1f}분 → {after['avg_downtime_minutes']:.1f}분")
+
+    defect_delta_pp = metrics.calculate_improvement_delta(before["defect_rate"], after["defect_rate"], kind="pp") * 100
+    k5.metric("불량률", f"{after['defect_rate']:.1%}", f"{defect_delta_pp:+.1f}%p", delta_color="inverse")
+    k5.caption(f"{before['defect_rate']:.1%} → {after['defect_rate']:.1%}")
+
+    st.subheader("Before / After KPI 비교")
+    st.caption("단위가 다른 KPI는 각각 별도 chart로 비교한다.")
+    row1_c1, row1_c2 = st.columns(2)
+    row2_c1, row2_c2 = st.columns(2)
+
+    row1_c1.plotly_chart(_before_after_bar_chart(
+        before["production_attainment"], after["production_attainment"],
+        "생산계획 달성률", "생산계획 달성률", lambda v: f"{v:.1%}", is_percent=True,
+    ), width="stretch")
+    row1_c2.plotly_chart(_before_after_bar_chart(
+        before["scheduled_good_uph"], after["scheduled_good_uph"],
+        "Scheduled Good UPH", "Scheduled Good UPH", lambda v: f"{v:.1f}",
+    ), width="stretch")
+    row2_c1.plotly_chart(_before_after_bar_chart(
+        before["avg_cycle_time_sec"], after["avg_cycle_time_sec"],
+        "Cycle Time", "Cycle Time (초)", lambda v: f"{v:.1f}초",
+    ), width="stretch")
+    row2_c2.plotly_chart(_before_after_bar_chart(
+        before["avg_downtime_minutes"], after["avg_downtime_minutes"],
+        "Downtime", "Downtime (분)", lambda v: f"{v:.1f}분",
+    ), width="stretch")
+
+    st.subheader("일별 Scheduled Good UPH 추이")
+    daily = metrics.calculate_daily_process_kpis(df, IMPROVEMENT_LINE, IMPROVEMENT_PROCESS)
+    improvement_dates = daily.loc[daily["period"] == "Improvement", "date"]
+
+    fig_trend = go.Figure()
+    fig_trend.add_scatter(
+        x=daily["date"], y=daily["scheduled_good_uph"], mode="lines+markers",
+        line=dict(color=LINE_COLORS[IMPROVEMENT_LINE], width=2), marker=dict(size=5),
+        name="Scheduled Good UPH",
+        hovertemplate="%{x|%Y-%m-%d}<br>Scheduled Good UPH: %{y:.1f}<extra></extra>",
+    )
+    if not improvement_dates.empty:
+        fig_trend.add_vline(
+            x=improvement_dates.iloc[0].strftime("%Y-%m-%d"), line_dash="dash", line_color=NEUTRAL_COLOR,
+            annotation_text="Improvement", annotation_position="top",
+        )
+    fig_trend.update_layout(xaxis_title="날짜", yaxis_title="Scheduled Good UPH", height=400, showlegend=False)
+    st.plotly_chart(fig_trend, width="stretch")
+    st.caption("Day 16(Improvement)은 위 그래프에서 전환 시점(transition point)으로만 표시되며, "
+               "핵심 KPI/비교 chart의 Before/After 집계에는 포함되지 않는다.")
+
+    st.subheader("Downtime Loss 구조 변화")
+    reason_comparison = analysis.calculate_downtime_reason_comparison(df, IMPROVEMENT_LINE, IMPROVEMENT_PROCESS)
+    before_n_days = reason_comparison["Before_days"].iloc[0]
+    after_n_days = reason_comparison["After_days"].iloc[0]
+    st.caption(f"Before({before_n_days}일)/After({after_n_days}일)의 기간 차이를 보정하기 위해 "
+               f"reason별 일평균 Downtime(분/일) 기준으로 비교한다. (hover에 총합/일수 표시)")
+
+    fig_reason = go.Figure()
+    fig_reason.add_bar(
+        x=reason_comparison.index, y=reason_comparison["Before_avg"], name="Before",
+        marker_color=NEUTRAL_COLOR,
+        customdata=reason_comparison[["Before_total", "Before_days"]],
+        hovertemplate="%{x}<br>Before 평균: %{y:.1f}분/일<br>총 %{customdata[0]:.1f}분 (%{customdata[1]}일)<extra></extra>",
+    )
+    fig_reason.add_bar(
+        x=reason_comparison.index, y=reason_comparison["After_avg"], name="After",
+        marker_color=LINE_COLORS[IMPROVEMENT_LINE],
+        customdata=reason_comparison[["After_total", "After_days"]],
+        hovertemplate="%{x}<br>After 평균: %{y:.1f}분/일<br>총 %{customdata[0]:.1f}분 (%{customdata[1]}일)<extra></extra>",
+    )
+    fig_reason.update_layout(
+        barmode="group", xaxis_title="Downtime 원인", yaxis_title="평균 Downtime (분/일)",
+        height=400, legend_title_text="기간",
+    )
+    st.plotly_chart(fig_reason, width="stretch")
+
+    st.subheader("개선 효과 요약")
+    summary_text = analysis.build_improvement_summary(IMPROVEMENT_LINE, IMPROVEMENT_PROCESS, kpi_table, reason_comparison)
+    with st.container(border=True):
+        st.markdown(summary_text.replace("\n", "  \n"))
+
+
 def main() -> None:
     df = load_data()
 
     with st.sidebar:
         st.markdown("### 메뉴")
-        page = st.radio("화면 선택", [PAGE_OVERVIEW, PAGE_BOTTLENECK], label_visibility="collapsed")
+        page = st.radio(
+            "화면 선택", [PAGE_OVERVIEW, PAGE_BOTTLENECK, PAGE_IMPROVEMENT], label_visibility="collapsed"
+        )
 
     render_header()
 
     if page == PAGE_OVERVIEW:
         render_overview(df)
-    else:
+    elif page == PAGE_BOTTLENECK:
         render_bottleneck(df)
+    else:
+        render_improvement(df)
 
 
 if __name__ == "__main__":

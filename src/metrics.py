@@ -101,3 +101,62 @@ def calculate_process_kpis(df: pd.DataFrame) -> pd.DataFrame:
             "defect_rate": g["defect_qty"].sum() / g["actual_qty"].sum(),
         })
     return pd.DataFrame(rows).set_index("process")
+
+
+def calculate_improvement_kpis(df: pd.DataFrame, line: str, process: str) -> pd.DataFrame:
+    """Before/After KPI comparison table (index: "Before"/"After") for one
+    (line, process). The Day 16 "Improvement" transition day is excluded from both
+    rows, matching how Before/After are defined everywhere else in this project.
+
+    `production_attainment` is Line-level: computed from the deduplicated
+    (date, line) view (see `create_line_daily_data`) so the planned/actual qty
+    columns -- which repeat across a Line's 4 process rows -- are not quadruple
+    counted. The remaining KPIs are this specific process's own row-level
+    measurements, using the same formulas as `calculate_process_kpis`.
+    """
+    line_daily = create_line_daily_data(df[df["line"] == line])
+    process_df = df[(df["line"] == line) & (df["process"] == process)]
+
+    rows = []
+    for period in ["Before", "After"]:
+        ld = line_daily[line_daily["period"] == period]
+        pd_period = process_df[process_df["period"] == period]
+        scheduled_hours = len(pd_period) * SHIFT_MINUTES / 60.0
+        operating_hours = pd_period["operating_minutes"].sum() / 60.0
+        rows.append({
+            "period": period,
+            "production_attainment": ld["actual_qty"].sum() / ld["planned_qty"].sum(),
+            "scheduled_good_uph": pd_period["good_qty"].sum() / scheduled_hours,
+            "runtime_good_uph": pd_period["good_qty"].sum() / operating_hours,
+            "avg_cycle_time_sec": pd_period["cycle_time_sec"].mean(),
+            "avg_downtime_minutes": pd_period["downtime_minutes"].mean(),
+            "defect_rate": pd_period["defect_qty"].sum() / pd_period["actual_qty"].sum(),
+        })
+    return pd.DataFrame(rows).set_index("period")
+
+
+def calculate_improvement_delta(before: float, after: float, kind: str = "relative") -> float:
+    """Before -> After delta for one KPI value.
+
+    kind="relative" (default): relative change (after - before) / before -- for
+    KPIs whose unit/scale isn't already a rate (UPH, Cycle Time, Downtime).
+    kind="pp": absolute percentage-point difference (after - before) -- for KPIs
+    already expressed as a fraction/rate (production_attainment, defect_rate),
+    where the meaningful comparison is the raw difference in that rate.
+    """
+    if kind == "pp":
+        return after - before
+    return (after - before) / before
+
+
+def calculate_daily_process_kpis(df: pd.DataFrame, line: str, process: str) -> pd.DataFrame:
+    """Per-day (not aggregated) KPI rows for one (line, process) across every date
+    in the dataset -- for daily trend charts. Each row already corresponds to a
+    single date, so no deduplication or aggregation is needed here; this includes
+    the Day 16 "Improvement" row (period == "Improvement"), unlike
+    `calculate_improvement_kpis`.
+    """
+    subset = df[(df["line"] == line) & (df["process"] == process)].sort_values("date").copy()
+    subset["scheduled_good_uph"] = subset["good_qty"] / (SHIFT_MINUTES / 60.0)
+    subset["runtime_good_uph"] = subset["good_qty"] / (subset["operating_minutes"] / 60.0)
+    return subset

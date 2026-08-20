@@ -2,3 +2,5 @@ numpy
 pandas
 streamlit
 plotly
+google-genai
+python-dotenv

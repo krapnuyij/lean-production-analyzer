@@ -22,7 +22,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from src import analysis, metrics
+from src import analysis, metrics, report
 
 DATA_PATH = Path(__file__).resolve().parent / "data" / "production_data.csv"
 
@@ -40,6 +40,7 @@ PARETO_LINE_COLOR = "#fab219"
 PAGE_OVERVIEW = "생산 현황"
 PAGE_BOTTLENECK = "Bottleneck 분석"
 PAGE_IMPROVEMENT = "개선 효과 분석"
+PAGE_AI_REPORT = "AI 개선 리포트"
 
 # this synthetic scenario's fixed improvement case -- no Line/Process filter on this page
 IMPROVEMENT_LINE = "LINE-B"
@@ -404,13 +405,68 @@ def render_improvement(df: pd.DataFrame) -> None:
         st.markdown(summary_text.replace("\n", "  \n"))
 
 
+def render_ai_report(df: pd.DataFrame) -> None:
+    st.header(PAGE_AI_REPORT)
+    st.caption(f"{IMPROVEMENT_LINE} / {IMPROVEMENT_PROCESS}의 Bottleneck, Loss 및 Before/After 개선 결과를 "
+               f"기반으로 후속 개선 포인트를 요약한다.")
+
+    context = report.build_report_context(df, IMPROVEMENT_LINE, IMPROVEMENT_PROCESS)
+    bn = context["bottleneck"]
+    imp = context["improvement"]
+    top_loss_names = ", ".join(loss["reason"] for loss in context["before_top_losses"][:2])
+    worsened = context["loss_change"]["worsened_reasons"]
+    remaining_loss = ", ".join(worsened) if worsened else "확인된 항목 없음"
+
+    st.subheader("핵심 분석 근거")
+    st.caption("아래 값은 AI에 실제로 전달되는 분석 결과이며, 모두 기존 화면과 동일한 계산 결과에서 가져온다.")
+    eb1, eb2 = st.columns(2)
+    with eb1:
+        st.markdown(
+            f"- Primary Bottleneck: **{bn['primary_process']}**\n"
+            f"- Bottleneck Share: **{bn['bottleneck_share_pct']:.0f}%** "
+            f"({bn['bottleneck_days']}/{bn['bottleneck_total_days']}일)\n"
+            f"- Top Loss: **{top_loss_names}**"
+        )
+    with eb2:
+        st.markdown(
+            f"- 생산계획 달성률: {imp['production_attainment_before_pct']:.1f}% → "
+            f"{imp['production_attainment_after_pct']:.1f}%\n"
+            f"- Scheduled Good UPH: {imp['scheduled_uph_before']:.1f} → {imp['scheduled_uph_after']:.1f}\n"
+            f"- Downtime: {imp['downtime_before_min']:.1f} → {imp['downtime_after_min']:.1f}분\n"
+            f"- Remaining Loss: **{remaining_loss}**"
+        )
+
+    st.caption("AI 리포트는 synthetic 생산 데이터에서 계산된 KPI를 기반으로 생성된 참고용 개선 제안이다.")
+
+    api_key = report.get_api_key()
+    if not api_key:
+        st.info("AI 리포트를 생성하려면 API key 설정이 필요하다.", icon="🔑")
+    else:
+        if st.button("AI 개선 리포트 생성"):
+            with st.spinner("AI 개선 리포트를 생성하는 중..."):
+                try:
+                    st.session_state["ai_report_text"] = report.generate_ai_report(context)
+                    st.session_state.pop("ai_report_error", None)
+                except Exception as exc:  # noqa: BLE001 -- surface any provider/network error to the user
+                    st.session_state.pop("ai_report_text", None)
+                    st.session_state["ai_report_error"] = str(exc)
+
+        if st.session_state.get("ai_report_error"):
+            st.error(f"AI 리포트 생성 중 오류가 발생했다: {st.session_state['ai_report_error']}")
+
+        if st.session_state.get("ai_report_text"):
+            st.divider()
+            st.markdown(st.session_state["ai_report_text"])
+
+
 def main() -> None:
     df = load_data()
 
     with st.sidebar:
         st.markdown("### 메뉴")
         page = st.radio(
-            "화면 선택", [PAGE_OVERVIEW, PAGE_BOTTLENECK, PAGE_IMPROVEMENT], label_visibility="collapsed"
+            "화면 선택", [PAGE_OVERVIEW, PAGE_BOTTLENECK, PAGE_IMPROVEMENT, PAGE_AI_REPORT],
+            label_visibility="collapsed",
         )
 
     render_header()
@@ -419,8 +475,10 @@ def main() -> None:
         render_overview(df)
     elif page == PAGE_BOTTLENECK:
         render_bottleneck(df)
-    else:
+    elif page == PAGE_IMPROVEMENT:
         render_improvement(df)
+    else:
+        render_ai_report(df)
 
 
 if __name__ == "__main__":

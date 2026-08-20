@@ -23,11 +23,11 @@
 4. 대시보드 화면: 생산 현황
 5. 대시보드 화면: Bottleneck 분석 (Process Drill-down, Bottleneck 판정, Downtime Pareto)
 6. 대시보드 화면: 개선 효과 분석 (LINE-B / Stitching Before vs After 비교, KPI Delta, Downtime Loss 구조 변화)
+7. 대시보드 화면: AI 개선 리포트 (Gemini 기반, Python이 계산한 KPI/분석 결과를 구조화해 LLM에 전달)
 
 아직 구현되지 않음:
 
-* AI 개선 리포트
-* ML 모델 / LLM 연동
+* (해당 없음 — 4단계 기능 구현 완료)
 
 ## 데이터에 대한 안내
 
@@ -113,7 +113,7 @@ conda activate lean-production-analyzer
 streamlit run app.py
 ```
 
-세 화면으로 구성되어 있으며 사이드바에서 전환한다.
+네 화면으로 구성되어 있으며 사이드바에서 전환한다.
 
 * **생산 현황**: 공장 전체 KPI, Line별 생산계획 달성률 비교, 일자별 추이
 * **Bottleneck 분석**: 선택한 Line의 Process별 성능 비교, 데이터 기반 Bottleneck 판정,
@@ -121,6 +121,8 @@ streamlit run app.py
 * **개선 효과 분석**: 이번 시나리오의 개선 대상인 `LINE-B / Stitching`을 고정 대상으로, Before(Day 1~15)
   vs After(Day 17~30) KPI 비교, 일별 Scheduled Good UPH 추이(Day 16 전환 시점 표시), Downtime Loss
   구조 변화, rule-based 개선 효과 요약을 보여준다. Day 16(Improvement)은 Before/After 집계에서 제외한다.
+* **AI 개선 리포트**: `LINE-B / Stitching`의 Bottleneck/Loss/Before-After 결과를 바탕으로 LLM이
+  후속 개선 포인트를 요약한다. 아래 "AI 개선 리포트" 절 참고.
 
 생산 현황/Bottleneck 분석의 기본 분석 기간은 `Before`이다. `Improvement`(Day 16, 전환일)는 문제를
 희석시키므로 기본 분석에서 제외하며, Period 필터에도 별도로 노출하지 않는다(`All` 선택 시에는 포함된다).
@@ -130,11 +132,35 @@ KPI/분석 로직은 `src/metrics.py`(Line/Process/개선 효과 KPI 계산), `s
 Downtime Pareto, Downtime Loss 구조 변화, rule-based 요약)에 분리되어 있고 `app.py`는 이를 UI에
 연결하는 역할만 한다.
 
+## AI 개선 리포트
+
+`src/report.py`가 `src/metrics.py`/`src/analysis.py`의 기존 함수를 재사용해 LINE-B / Stitching의
+Bottleneck·Before/After KPI·Downtime Loss 변화를 작은 JSON 형태의 context로 먼저 계산한다.
+**raw CSV 전체나 원본 dataframe을 LLM에 직접 넘기지 않으며**, Python에서 이미 계산이 끝난 숫자만
+LLM에 전달해 5개 섹션(현황 요약 / 주요 Loss / 개선 효과 / 후속 개선 과제 / 다음 개선 우선순위)의
+한국어 Markdown 리포트로 정리하도록 한다. LLM은 숫자를 새로 계산하거나 데이터에 없는 사실(설비 상태,
+인력 문제 등)을 만들어내지 않도록 system prompt에서 명시적으로 제한한다.
+
+Provider는 **Google Gemini**(`google-genai` 공식 SDK) 하나만 사용한다. API key는 절대 코드에
+포함하지 않고 환경변수에서 읽는다.
+
+```bash
+cp .env.example .env
+# .env 파일을 열어 GEMINI_API_KEY=실제_키_값 형태로 채운다
+```
+
+`.env`는 `.gitignore`에 포함되어 있어 커밋되지 않는다. `.env.example`에는 변수 이름만 있다.
+API key가 설정되지 않은 상태에서도 나머지 세 화면(생산 현황/Bottleneck 분석/개선 효과 분석)은
+정상 동작하며, AI 개선 리포트 화면은 안내 문구만 보여주고 API를 호출하지 않는다. `AI 개선 리포트
+생성` 버튼을 눌렀을 때만 1회 호출되며, 생성된 결과는 `st.session_state`에 유지되어 페이지 이동/rerun
+시 반복 호출되지 않는다.
+
 ## 프로젝트 구조
 
 ```text
 lean-production-analyzer/
 ├── .gitignore
+├── .env.example
 ├── AGENTS.md
 ├── CLAUDE.md
 ├── README.md
@@ -145,7 +171,8 @@ lean-production-analyzer/
 ├── src/
 │   ├── generate_data.py
 │   ├── metrics.py
-│   └── analysis.py
+│   ├── analysis.py
+│   └── report.py
 └── scripts/
     └── validate_data.py
 ```

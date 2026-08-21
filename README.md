@@ -165,13 +165,18 @@ lean-production-analyzer/
 ├── .env.example
 ├── data/
 │   └── production_data.csv
+├── docs/
+│   └── images/
 ├── src/
 │   ├── generate_data.py
 │   ├── metrics.py
 │   ├── analysis.py
 │   └── report.py
-└── scripts/
-    └── validate_data.py
+├── scripts/
+│   └── validate_data.py
+└── tests/
+    ├── test_analysis.py
+    └── test_report.py
 ```
 
 ## 실행 방법

@@ -163,18 +163,25 @@ def build_improvement_summary(
     return "\n".join(lines)
 
 
-def build_analysis_summary(line: str, period: str, process_kpis: pd.DataFrame, pareto: pd.DataFrame) -> str:
+def build_analysis_summary(
+    line: str, period: str, bottleneck_process: str, process_kpis: pd.DataFrame, pareto: pd.DataFrame
+) -> str:
     """Rule-based (non-LLM) Korean text summary of the Bottleneck Analysis screen,
     entirely from computed numbers: the bottleneck process, how it differs from the
     other processes' average, and the top downtime loss reasons.
 
-    `bottleneck_process` and the joined reason names are runtime-determined by the
-    data, so no alternating Korean particle (은/는/이/가/을/를/와/과) is ever attached
-    directly to them -- each is followed only by the invariant "의", or by a fixed
-    Korean noun ("원인", "퍼센트") that carries the particle instead. This keeps the
-    sentence grammatical no matter which Process or reason combination comes back.
+    `bottleneck_process` must be the Capacity-based Primary Bottleneck already
+    determined via `identify_daily_bottleneck()` / `summarize_bottlenecks()` --
+    this function does not re-derive a bottleneck from UPH or any other metric, so
+    the warning banner, the Pareto chart, and this summary always agree on the same
+    process.
+
+    The joined reason names are runtime-determined by the data, so no alternating
+    Korean particle (은/는/이/가/을/를/와/과) is ever attached directly to them --
+    each is followed only by the invariant "의", or by a fixed Korean noun ("원인",
+    "퍼센트") that carries the particle instead. This keeps the sentence
+    grammatical no matter which Process or reason combination comes back.
     """
-    bottleneck_process = process_kpis["scheduled_good_uph"].idxmin()
     bn = process_kpis.loc[bottleneck_process]
     others = process_kpis.drop(index=bottleneck_process)
 

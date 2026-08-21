@@ -1,10 +1,13 @@
 """Streamlit dashboard for the Production LEAN Improvement Analyzer.
 
-Two screens: Production Overview (factory-wide KPIs, Line comparison) and
+Four screens: Production Overview (factory-wide KPIs, Line comparison),
 Bottleneck Analysis (process drill-down, bottleneck determination, downtime
-Pareto). Read-only against data/production_data.csv -- this app never writes to
-or regenerates the dataset. KPI/analysis logic lives in src/metrics.py and
-src/analysis.py; this file only wires that logic to the UI.
+Pareto), Improvement Impact (Before/After KPI comparison for the target Line
+and Process), and AI Improvement Report (Gemini-based summary of the
+Python-computed analysis). Read-only against data/production_data.csv -- this
+app never writes to or regenerates the dataset. KPI/analysis logic lives in
+src/metrics.py and src/analysis.py, AI report logic lives in src/report.py;
+this file only wires that logic to the UI.
 
 UI copy is Korean-first; LEAN/manufacturing terms commonly used in English on
 the shop floor (Line, Process, Cycle Time, UPH, Capacity, Bottleneck, Downtime,
@@ -208,6 +211,7 @@ def render_bottleneck(df: pd.DataFrame) -> None:
     st.caption("Capacity(operating_minutes × 60 / cycle_time_sec) 기준으로, 날짜별 4개 Process 중 "
                "가장 낮은 값을 그날의 Bottleneck으로 판정한다.")
     display_summary = bn_summary.rename(columns={"days": "일수", "share": "비율"}).copy()
+    display_summary["일수"] = display_summary["일수"].map(lambda v: f"{v}일")
     display_summary["비율"] = display_summary["비율"].map(lambda v: f"{v:.0%}")
     st.dataframe(display_summary, width="stretch")
 
@@ -265,7 +269,7 @@ def render_bottleneck(df: pd.DataFrame) -> None:
         st.dataframe(details, width="stretch")
 
     st.subheader("분석 요약")
-    summary_text = analysis.build_analysis_summary(line_choice, period, process_kpis, pareto)
+    summary_text = analysis.build_analysis_summary(line_choice, period, top_process, process_kpis, pareto)
     with st.container(border=True):
         st.markdown(summary_text.replace("\n", "  \n"))
 

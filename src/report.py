@@ -24,7 +24,13 @@ load_dotenv()
 
 GEMINI_MODEL = "gemini-2.5-flash"
 GEMINI_REQUEST_TIMEOUT_MS = 30_000
-GEMINI_MAX_ATTEMPTS = 1
+# Bounded retry for transient errors only (429 rate-limit, 503 overloaded) -- first
+# attempt plus up to 2 retries, short exponential backoff. Never unbounded/long retry.
+GEMINI_MAX_ATTEMPTS = 3
+GEMINI_RETRY_INITIAL_DELAY = 1.0
+GEMINI_RETRY_MAX_DELAY = 4.0
+GEMINI_RETRY_EXP_BASE = 2.0
+GEMINI_RETRY_STATUS_CODES = [429, 503]
 
 SYSTEM_PROMPT = """당신은 제조 공장의 LEAN 생산 개선 담당자를 돕는 리포트 작성 보조자이다.
 
@@ -36,8 +42,19 @@ SYSTEM_PROMPT = """당신은 제조 공장의 LEAN 생산 개선 담당자를 �
 - Before/After 변화나 개선활동과 KPI 변화 사이의 인과관계를 암시하는 "~을 통해 개선되었다",
   "~로 인해 향상되었다" 같은 표현은 사용하지 않는다. 대신 "개선 후", "Before/After 비교에서",
   "~와 함께 변화하는 패턴이 나타났다"처럼 관찰된 동시 변화만 표현한다.
-- Loss 변화는 "Loss가 개선되었다"보다, 실제 측정값을 그대로 가리키는 "Downtime이 감소/증가했다"
-  같은 표현을 우선한다.
+- 각 분석 결과가 Before 기간과 After 기간 중 어느 쪽에 해당하는지 정확히 구분한다. context의
+  Bottleneck 정보(Primary Bottleneck, Bottleneck Share 등)는 Before 기간에서 확인된 결과이며,
+  After 기간의 Bottleneck 여부는 제공되지 않았다.
+- 따라서 Before 기간의 Bottleneck을 "지속적으로 Bottleneck이다", "여전히 Bottleneck이다",
+  "개선 후에도 Bottleneck이다"처럼 After 기간까지 확대 해석하지 않는다. 제공된 기간 밖의 상태는
+  추정하지 않는다. 대신 "Before 기간 주요 Bottleneck이었던 Stitching", "Before 기간 Bottleneck으로
+  확인된 Stitching"처럼 기간을 명시하고, 후속 제안은 "Stitching의 Capacity 추가 점검을 고려할 수
+  있다"처럼 가능성으로 표현하되 현재 상태에 대한 사실처럼 쓰지 않는다.
+- reason별 Before/After 변화를 서술할 때는 어떤 reason이 주어지든 "{reason}의 Loss가
+  감소/증가했다"처럼 표현하지 않고, 실제 측정값을 그대로 가리키는 "{reason}의 Downtime이
+  감소/증가했다"처럼 표현한다. reason 이름은 context에 주어진 것만 그대로 사용하고 임의로
+  만들어내지 않는다. "Loss"라는 용어는 "주요 Loss", "Downtime Loss 구조"처럼 분석 범주 전체를
+  지칭할 때만 사용하고, 특정 reason 하나의 증감을 서술할 때는 사용하지 않는다.
 - 이 데이터는 synthetic(합성) 생산 데이터에서 계산된 것임을 인지하고, 실제 기업 사실인 것처럼 서술하지 않는다.
 - 개선 제안은 확정적 지시가 아니라 "가능한 후속 조치"로 표현한다.
 - 데이터에 없는 구체적인 설비 고장 원인, 인력 배치 등은 추측하지 않는다. 원인을 알 수 없는 경우
@@ -61,6 +78,14 @@ SYSTEM_PROMPT = """당신은 제조 공장의 LEAN 생산 개선 담당자를 �
 
 class MissingAPIKeyError(RuntimeError):
     """Raised when GEMINI_API_KEY is not configured."""
+
+
+class EmptyReportError(RuntimeError):
+    """Raised when Gemini returns no usable report text."""
+
+
+class GeminiUnavailableError(RuntimeError):
+    """Raised when Gemini keeps returning 503 UNAVAILABLE after all bounded retries."""
 
 
 def get_api_key() -> str | None:
@@ -159,27 +184,52 @@ def build_report_prompt(context: dict) -> str:
 
 
 def generate_ai_report(context: dict) -> str:
-    """Call Gemini once with the structured context and return the Markdown report
-    text. Raises MissingAPIKeyError if GEMINI_API_KEY isn't set -- callers should
-    check `get_api_key()` before offering the generate button, but this is a
-    defensive backstop."""
+    """Call Gemini with the structured context and return the Markdown report text.
+
+    A single button click here is at most GEMINI_MAX_ATTEMPTS (3) requests to the
+    provider: the SDK's http_options bound the retry to transient errors only
+    (429/503), a short exponential backoff, and no unbounded/long retrying.
+
+    Raises MissingAPIKeyError if GEMINI_API_KEY isn't set -- callers should check
+    `get_api_key()` before offering the generate button, but this is a defensive
+    backstop. Raises GeminiUnavailableError with a short Korean message (instead of
+    the raw provider error) if Gemini still returns 503 after all retries.
+    """
     api_key = get_api_key()
     if not api_key:
         raise MissingAPIKeyError("GEMINI_API_KEY가 설정되어 있지 않다.")
 
     from google import genai
-    from google.genai import types
+    from google.genai import errors, types
 
     client = genai.Client(
         api_key=api_key,
         http_options=types.HttpOptions(
             timeout=GEMINI_REQUEST_TIMEOUT_MS,
-            retry_options=types.HttpRetryOptions(attempts=GEMINI_MAX_ATTEMPTS),
+            retry_options=types.HttpRetryOptions(
+                attempts=GEMINI_MAX_ATTEMPTS,
+                initial_delay=GEMINI_RETRY_INITIAL_DELAY,
+                max_delay=GEMINI_RETRY_MAX_DELAY,
+                exp_base=GEMINI_RETRY_EXP_BASE,
+                http_status_codes=GEMINI_RETRY_STATUS_CODES,
+            ),
         ),
     )
-    response = client.models.generate_content(
-        model=GEMINI_MODEL,
-        contents=build_report_prompt(context),
-        config=types.GenerateContentConfig(system_instruction=SYSTEM_PROMPT, temperature=0.3),
-    )
+    try:
+        response = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=build_report_prompt(context),
+            config=types.GenerateContentConfig(system_instruction=SYSTEM_PROMPT, temperature=0.3),
+        )
+    except errors.ServerError as exc:
+        # after all bounded retries still fail with 503, surface a short, readable
+        # message instead of the raw provider error JSON (exc's __str__).
+        if getattr(exc, "code", None) == 503:
+            raise GeminiUnavailableError(
+                "현재 Gemini 서버 요청이 많아 AI 리포트를 생성하지 못했다. 잠시 후 다시 시도해 달라."
+            ) from exc
+        raise
+
+    if not response.text:
+        raise EmptyReportError("Gemini가 빈 응답을 반환했다. 잠시 후 다시 시도한다.")
     return response.text
